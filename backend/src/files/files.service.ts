@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageProviderInterface } from './storage/storage-provider.interface';
 import { LocalStorageProvider } from './storage/local-storage.provider';
+import { S3StorageProvider } from './storage/s3-storage.provider';
 import { AuthUser } from '../common/decorators/user.decorator';
 import { FileKind } from '@prisma/client';
 
@@ -27,13 +28,19 @@ const ALLOWED_MIME = new Set([
 /**
  * Central file handling: validation, storage, metadata and authorization.
  * Large binary payloads live on disk / object storage — never in PostgreSQL.
+ *
+ * Storage backend selection: if S3_BUCKET is configured, all files go to the
+ * S3-compatible store (required on ephemeral hosts like Render — local disk
+ * is wiped on every deploy). Otherwise falls back to local disk for dev.
  */
 @Injectable()
 export class FilesService {
   private storage: StorageProviderInterface;
 
   constructor(private prisma: PrismaService) {
-    this.storage = new LocalStorageProvider();
+    this.storage = process.env.S3_BUCKET
+      ? new S3StorageProvider()
+      : new LocalStorageProvider();
   }
 
   validate(file: Express.Multer.File): void {

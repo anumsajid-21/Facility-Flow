@@ -55,3 +55,9 @@ export class ResetPasswordDto {
   @Matches(/[^A-Za-z0-9]/, { message: STRONG_PASSWORD_MESSAGE })
   password: string;
 }
+
+export class RefreshTokenDto {
+  @IsString()
+  @IsNotEmpty()
+  refresh_token: string;
+}

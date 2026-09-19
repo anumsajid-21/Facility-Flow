@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { RegisterDto, LoginDto, ForgotPasswordDto, ResetPasswordDto } from './dto/auth.dto';
+import { RegisterDto, LoginDto, ForgotPasswordDto, ResetPasswordDto, RefreshTokenDto } from './dto/auth.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthUser } from '../common/decorators/user.decorator';
 import { RateLimitGuard } from '../common/guards/rate-limit.guard';
@@ -36,6 +36,20 @@ export class AuthController {
   @Post('reset-password')
   async resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto.token, dto.password);
+  }
+
+  @UseGuards(RateLimitGuard)
+  @Throttle({ limit: 30, ttl: 60 })
+  @Post('refresh')
+  async refresh(@Body() dto: RefreshTokenDto) {
+    return this.authService.refresh(dto.refresh_token);
+  }
+
+  @UseGuards(RateLimitGuard)
+  @Throttle({ limit: 10, ttl: 60 })
+  @Post('logout')
+  async logout(@Body() dto: RefreshTokenDto) {
+    return this.authService.logout(dto.refresh_token);
   }
 
   @UseGuards(JwtAuthGuard)

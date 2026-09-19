@@ -10,6 +10,7 @@ import { Role } from '@prisma/client';
 
 export interface AuthPayload {
   access_token: string;
+  refresh_token: string;
   user: {
     id: string;
     email: string;
@@ -21,6 +22,8 @@ export interface AuthPayload {
 }
 
 const BCRYPT_ROUNDS = 12;
+/** Refresh tokens: 30 days, rotating (single-use), hashed at rest. */
+const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Authentication and role-based account provisioning. Passwords are hashed
@@ -38,6 +41,43 @@ export class AuthService {
 
   private sign(user: { id: string; email: string; role: Role }): string {
     return this.jwtService.sign({ sub: user.id, email: user.email, role: user.role });
+  }
+
+  /**
+   * Issues a rotating refresh token: a random 64-hex token is returned to the
+   * client while only its SHA-256 hash is persisted. Refreshing consumes the
+   * old token (revoked) and mints a new one, so replay of a stolen token fails
+   * as soon as the legitimate client refreshes.
+   */
+  private async issueRefreshToken(userId: string): Promise<string> {
+    const rawToken = randomBytes(48).toString('hex');
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    await this.prisma.refreshToken.create({
+      data: { userId, tokenHash, expiresAt: new Date(Date.now() + REFRESH_TTL_MS) },
+    });
+    return rawToken;
+  }
+
+  private async buildAuthPayload(user: {
+    id: string;
+    email: string;
+    name: string;
+    role: Role;
+    hiringOrgId: string | null;
+    providerId: string | null;
+  }): Promise<AuthPayload> {
+    return {
+      access_token: this.sign(user),
+      refresh_token: await this.issueRefreshToken(user.id),
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        hiringOrgId: user.hiringOrgId,
+        providerId: user.providerId,
+      },
+    };
   }
 
   async register(dto: RegisterDto): Promise<AuthPayload> {
@@ -103,10 +143,7 @@ export class AuthService {
       message: 'Your account was created successfully.',
     });
 
-    return {
-      access_token: this.sign(user),
-      user: { id: user.id, email: user.email, name: user.name, role: user.role, hiringOrgId, providerId },
-    };
+    return this.buildAuthPayload(user);
   }
 
   async login(dto: LoginDto): Promise<AuthPayload> {
@@ -124,8 +161,49 @@ export class AuthService {
     if (!valid) {
       throw new UnauthorizedException('Incorrect password or username');
     }
+    return this.buildAuthPayload(user);
+  }
+
+  /**
+   * Exchanges a valid, non-revoked, non-expired refresh token for a new access
+   * token + a new (rotated) refresh token. Also cleans up expired tokens for
+   * the same user to keep the table bounded.
+   */
+  async refresh(rawToken: string): Promise<AuthPayload> {
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const record = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
+    if (!record || record.revokedAt || record.expiresAt < new Date()) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: record.userId },
+      select: { id: true, email: true, name: true, role: true, hiringOrgId: true, providerId: true, isActive: true },
+    });
+    if (!user || !user.isActive) {
+      // Deactivate all sessions of a disabled account.
+      await this.prisma.refreshToken.updateMany({
+        where: { userId: record.userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      throw new UnauthorizedException('Account not found or inactive');
+    }
+
+    // Rotate atomically: consume the used token, then mint a new pair.
+    const newRaw = randomBytes(48).toString('hex');
+    const newHash = createHash('sha256').update(newRaw).digest('hex');
+    await this.prisma.$transaction([
+      this.prisma.refreshToken.update({ where: { id: record.id }, data: { revokedAt: new Date() } }),
+      this.prisma.refreshToken.create({
+        data: { userId: user.id, tokenHash: newHash, expiresAt: new Date(Date.now() + REFRESH_TTL_MS) },
+      }),
+      this.prisma.refreshToken.deleteMany({
+        where: { userId: user.id, expiresAt: { lt: new Date() } },
+      }),
+    ]);
+
     return {
       access_token: this.sign(user),
+      refresh_token: newRaw,
       user: {
         id: user.id,
         email: user.email,
@@ -135,6 +213,24 @@ export class AuthService {
         providerId: user.providerId,
       },
     };
+  }
+
+  /** Revokes a single refresh token (logout on one device). */
+  async logout(rawToken: string): Promise<{ message: string }> {
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    await this.prisma.refreshToken.updateMany({
+      where: { tokenHash, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return { message: 'Logged out successfully.' };
+  }
+
+  /** Revokes every refresh token of a user (logout everywhere / account compromise). */
+  async revokeAllSessions(userId: string): Promise<void> {
+    await this.prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
   }
 
   async forgotPassword(email: string) {
@@ -159,6 +255,8 @@ export class AuthService {
       this.prisma.user.update({ where: { id: record.userId }, data: { password: hash } }),
       this.prisma.passwordResetToken.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
     ]);
+    // A password reset invalidates every existing session.
+    await this.revokeAllSessions(record.userId);
     return { message: 'Password reset successfully.' };
   }
 

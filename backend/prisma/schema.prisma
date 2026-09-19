@@ -134,6 +134,7 @@ model User {
   sentMessages           Message[]
   messageThreads         MessageThread[]         @relation("ThreadCreator")
   passwordResetTokens    PasswordResetToken[]
+  refreshTokens          RefreshToken[]
 
   @@index([hiringOrgId])
   @@index([providerId])
@@ -151,6 +152,23 @@ model PasswordResetToken {
 
   @@index([userId, expiresAt])
 }
+
+// Long-lived (30d) rotating refresh tokens. Only the SHA-256 hash is stored;
+// each token is single-use — refresh revokes it and issues a new one, so a
+// stolen refresh token stops working the moment the legitimate client uses it.
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
 
 model Organization {
   id           String   @id @default(uuid())

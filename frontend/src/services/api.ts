@@ -16,6 +16,73 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+/**
+ * Refresh-token rotation on 401.
+ *
+ * Access tokens are short-lived (30m). When one expires, the first failing
+ * request triggers POST /auth/refresh with the stored refresh token; the new
+ * pair is persisted and the original request is replayed. Concurrent failures
+ * share a single in-flight refresh promise. Auth endpoints themselves (login,
+ * refresh, logout…) never trigger the flow, so wrong-password 401s pass
+ * through untouched.
+ */
+let refreshInFlight: Promise<string | null> | null = null;
+
+api.interceptors.response.use(
+  (res) => res,
+  async (error) => {
+    const original = error?.config;
+    const status = error?.response?.status;
+    const url: string = original?.url || "";
+    const isAuthRoute = url.includes("/auth/");
+    const canRefresh =
+      status === 401 &&
+      original &&
+      !original._retry &&
+      !isAuthRoute &&
+      typeof window !== "undefined" &&
+      !!localStorage.getItem("refresh_token");
+
+    if (canRefresh) {
+      original._retry = true;
+      refreshInFlight =
+        refreshInFlight ||
+        (async () => {
+          try {
+            const res = await axios.post(`${API_URL}/auth/refresh`, {
+              refresh_token: localStorage.getItem("refresh_token"),
+            });
+            const data = (res.data?.data ?? res.data) as {
+              access_token: string;
+              refresh_token: string;
+            };
+            localStorage.setItem("token", data.access_token);
+            localStorage.setItem("refresh_token", data.refresh_token);
+            api.defaults.headers.common["Authorization"] = `Bearer ${data.access_token}`;
+            return data.access_token;
+          } catch {
+            localStorage.removeItem("token");
+            localStorage.removeItem("refresh_token");
+            return null;
+          }
+        })();
+
+      try {
+        const newToken = await refreshInFlight;
+        if (newToken) {
+          original.headers.Authorization = `Bearer ${newToken}`;
+          return api(original);
+        }
+        // Refresh rejected (expired/revoked) — session is over.
+        window.location.href = "/login";
+      } finally {
+        refreshInFlight = null;
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 /** Unwraps the backend { data, meta } envelope. */
 function unwrap<T = any>(res: { data: any }): T {
   return (res.data?.data ?? res.data) as T;
@@ -45,6 +112,7 @@ export const authService = {
   resetPassword: async (token: string, password: string) => unwrap(await api.post("/auth/reset-password", { token, password })),
   register: async (data: any) => unwrap(await api.post("/auth/register", data)),
   getProfile: async () => unwrap(await api.get("/auth/me")),
+  logout: async (refresh_token: string) => unwrap(await api.post("/auth/logout", { refresh_token })),
 };
 
 export const settingsApi = {

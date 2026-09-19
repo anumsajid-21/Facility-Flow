@@ -2,10 +2,12 @@ services:
   - type: web
     name: facilityflow-backend
     runtime: node
-    plan: free
+    # "starter" = always-on instance (free tier spins down and has cold starts).
+    plan: starter
     rootDir: backend
     buildCommand: npm install && npx prisma generate && npm run build
     startCommand: npx prisma migrate deploy && npm run start:prod
+    healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -13,16 +15,41 @@ services:
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
+      # Short-lived access token; sessions renew via POST /auth/refresh.
       - key: JWT_EXPIRES_IN
-        value: 1d
+        value: 30m
       - key: CORS_ORIGIN
         value: https://facilityflow-frontend.onrender.com
       - key: FRONTEND_URL
         value: https://facilityflow-frontend.onrender.com
-      - key: UPLOAD_ROOT
-        value: ./uploads
+      # Ephemeral disk on Render — all uploads MUST go to S3-compatible
+      # storage or they are wiped on every deploy. Set these in the dashboard.
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
+      # Shared rate-limit store (set when running more than one instance).
+      - key: REDIS_URL
+        sync: false
+      # Real email delivery for password resets and worker invites.
       - key: EMAIL_PROVIDER
-        value: console
+        value: smtp
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
@@ -31,7 +58,7 @@ services:
   - type: web
     name: facilityflow-frontend
     runtime: node
-    plan: free
+    plan: starter
     rootDir: frontend
     buildCommand: npm install && npm run build
     startCommand: npm start
@@ -41,6 +68,8 @@ services:
 
 databases:
   - name: facilityflow-db
-    plan: free
+    # Paid tier: does NOT expire (the free Postgres plan expires after 30 days).
+    plan: basic-256mb
     databaseName: facilityflow
     user: facilityflow
+    postgresMajorVersion: "16"

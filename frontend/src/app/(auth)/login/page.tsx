@@ -31,7 +31,7 @@ export default function LoginPage() {
     try {
       setError("");
       const res = await authService.login(values);
-      setAuth(res.user, res.access_token);
+      setAuth(res.user, res.access_token, res.refresh_token);
       router.replace("/dashboard");
     } catch (err: any) {
       setError(err.response?.data?.message || "Incorrect password or username");
