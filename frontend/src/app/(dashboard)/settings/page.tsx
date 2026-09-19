@@ -46,12 +46,12 @@ export default function SettingsPage() {
   // Notifications Form
   const [notifForm, setNotifForm] = useState({
     inApp: true,
-    email: true,
+    
     categories: {
-      QUOTATION_RECEIVED: { inApp: true, email: true },
-      JOB_STATUS_CHANGE: { inApp: true, email: true },
-      APPROVAL: { inApp: true, email: true },
-      PAYMENT: { inApp: true, email: true },
+      QUOTATION_RECEIVED: { inApp: true },
+      JOB_STATUS_CHANGE: { inApp: true },
+      APPROVAL: { inApp: true },
+      PAYMENT: { inApp: true },
     },
   });
 
@@ -117,10 +117,10 @@ export default function SettingsPage() {
           inApp: notifs.inApp ?? true,
           email: notifs.email ?? true,
           categories: (notifs.categories as any) || {
-            QUOTATION_RECEIVED: { inApp: true, email: true },
-            JOB_STATUS_CHANGE: { inApp: true, email: true },
-            APPROVAL: { inApp: true, email: true },
-            PAYMENT: { inApp: true, email: true },
+            QUOTATION_RECEIVED: { inApp: true },
+            JOB_STATUS_CHANGE: { inApp: true },
+            APPROVAL: { inApp: true },
+            PAYMENT: { inApp: true },
           },
         });
       }
@@ -462,7 +462,7 @@ export default function SettingsPage() {
           <div className="p-5 space-y-6">
             <div className="flex items-center justify-between border-b border-border pb-4">
               <div>
-                <h4 className="font-semibold text-charcoal">Global In-App Notifications</h4>
+                <h4 className="font-semibold text-charcoal">In-App Notifications</h4>
                 <p className="text-xs text-sage">Receive notifications in the top bar bell menu.</p>
               </div>
               <input
@@ -475,14 +475,14 @@ export default function SettingsPage() {
 
             <div className="flex items-center justify-between border-b border-border pb-4">
               <div>
-                <h4 className="font-semibold text-charcoal">Global Email Notifications</h4>
-                <p className="text-xs text-sage">Receive transactional email notifications.</p>
+                <h4 className="font-semibold text-charcoal">Email Notifications</h4>
+                <p className="text-xs text-sage">Email notifications are currently disabled — no mail server configured.</p>
               </div>
               <input
                 type="checkbox"
                 className="h-5 w-5 rounded border-border text-pine focus:ring-pine"
-                checked={notifForm.email}
-                onChange={(e) => setNotifForm({ ...notifForm, email: e.target.checked })}
+                disabled
+                checked={false}
               />
             </div>
 
@@ -495,7 +495,7 @@ export default function SettingsPage() {
                 { key: "APPROVAL", title: "Job Approvals & Rework", desc: "When job proof is approved or rework is requested." },
                 { key: "PAYMENT", title: "Invoice & Payment Updates", desc: "When an invoice is issued or payment is recorded." },
               ].map((item) => {
-                const catState = (notifForm.categories as any)[item.key] || { inApp: true, email: true };
+                const catState = (notifForm.categories as any)[item.key] || { inApp: true };
                 return (
                   <div key={item.key} className="flex items-center justify-between rounded-lg border border-border p-3">
                     <div>
@@ -519,22 +519,7 @@ export default function SettingsPage() {
                         />
                         <span>In-App</span>
                       </label>
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={catState.email}
-                          onChange={(e) =>
-                            setNotifForm({
-                              ...notifForm,
-                              categories: {
-                                ...notifForm.categories,
-                                [item.key]: { ...catState, email: e.target.checked },
-                              },
-                            })
-                          }
-                        />
-                        <span>Email</span>
-                      </label>
+                      
                     </div>
                   </div>
                 );

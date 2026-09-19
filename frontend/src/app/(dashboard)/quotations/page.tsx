@@ -9,14 +9,15 @@ import { toast } from "@/store/toast";
 import { money, dateShort, humanize } from "@/lib/utils";
 import { useConfirm } from "@/components/ui/kit";
 
+const toDays = (value: any) => {
+  const match = String(value || "").toLowerCase().match(/(\d+(?:\.\d+)?)\s*(hour|day|week|month)/);
+  return match ? Number(match[1]) * ({ hour: 1 / 24, day: 1, week: 7, month: 30 } as any)[match[2]] : 14;
+};
+
 function recommendationScore(quote: any, quotes: any[]) {
   const prices = quotes.map((q) => Number(q.price)).filter((price) => price > 0);
   const lowestPrice = prices.length ? Math.min(...prices) : Number(quote.price);
   const priceScore = Number(quote.price) > 0 ? lowestPrice / Number(quote.price) : 0;
-  const toDays = (value: any) => {
-    const match = String(value || "").toLowerCase().match(/(\d+(?:\.\d+)?)\s*(hour|day|week|month)/);
-    return match ? Number(match[1]) * ({ hour: 1 / 24, day: 1, week: 7, month: 30 } as any)[match[2]] : 14;
-  };
   const durationDays = toDays(quote.duration);
   const fastest = Math.min(...quotes.map((q) => toDays(q.duration)));
   const speedScore = fastest / Math.max(durationDays, fastest);
@@ -24,8 +25,23 @@ function recommendationScore(quote: any, quotes: any[]) {
   return priceScore * 0.55 + speedScore * 0.25 + detailScore * 0.2;
 }
 
+const ELIGIBLE_STATUSES = ["SUBMITTED", "SHORTLISTED", "UNDER_REVIEW"];
+
 function recommendedQuote(quotes: any[]) {
-  return quotes.filter((q) => ["SUBMITTED", "SHORTLISTED", "UNDER_REVIEW"].includes(q.status)).sort((a, b) => recommendationScore(b, quotes) - recommendationScore(a, quotes))[0];
+  return quotes.filter((q) => ELIGIBLE_STATUSES.includes(q.status)).sort((a, b) => recommendationScore(b, quotes) - recommendationScore(a, quotes))[0];
+}
+
+/** Human-readable "why" for the recommended quote. Only meaningful when
+ *  there are at least two competing quotes to compare against. */
+function recommendationReason(quote: any, quotes: any[]): string {
+  const eligible = quotes.filter((q) => ELIGIBLE_STATUSES.includes(q.status));
+  if (eligible.length < 2) return "";
+  const prices = eligible.map((q) => Number(q.price)).filter((p) => p > 0);
+  const lowestPrice = prices.length ? Math.min(...prices) : null;
+  if (lowestPrice != null && Number(quote.price) > 0 && Number(quote.price) === lowestPrice) return "Lowest price";
+  const fastest = Math.min(...eligible.map((q) => toDays(q.duration)));
+  if (toDays(quote.duration) === fastest) return "Fastest turnaround";
+  return "Best overall value";
 }
 
 export default function QuotationsPage() {
@@ -232,6 +248,8 @@ export default function QuotationsPage() {
             <div className="space-y-8">
               {all.map(([requestId, list]) => {
                 const recommended = recommendedQuote(list);
+                const competingCount = list.filter((q) => ELIGIBLE_STATUSES.includes(q.status)).length;
+                const hasComparison = competingCount >= 2;
                 const request = list[0].serviceRequest;
                 return (
                   <section key={requestId} className="space-y-3">
@@ -245,7 +263,11 @@ export default function QuotationsPage() {
                     <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
                       {list.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).map((q) => {
                         const accepted = q.status === "ACCEPTED";
-                        const recommendedForTask = recommended?.id === q.id;
+                        // Only badge a recommendation when there is a real
+                        // comparison (2+ eligible quotes) — a lone quote
+                        // isn't "recommended", it's just the only option.
+                        const recommendedForTask = hasComparison && recommended?.id === q.id;
+                        const reason = recommendedForTask ? recommendationReason(q, list) : "";
                         return (
                           <Card key={q.id} className={`flex flex-col ${accepted || recommendedForTask ? "border-pine ring-1 ring-pine/30" : ""}`}>
                             <div className="flex items-start justify-between border-b border-border px-5 py-4">
@@ -255,7 +277,11 @@ export default function QuotationsPage() {
                               </div>
                               <div className="flex flex-col items-end gap-1">
                                 <StatusBadge status={q.status} />
-                                {recommendedForTask && <span className="flex items-center gap-1 text-[11px] font-bold text-pine"><Sparkles className="h-3 w-3" /> Recommended</span>}
+                                {recommendedForTask && (
+                                  <span className="flex items-center gap-1 text-[11px] font-bold text-pine" title={`Recommended: ${reason}`}>
+                                    <Sparkles className="h-3 w-3" /> Recommended{reason && <span className="font-semibold text-pine/70">· {reason}</span>}
+                                  </span>
+                                )}
                               </div>
                             </div>
                             <div className="flex flex-1 flex-col p-5">

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, MapPin, Calendar, Sparkles } from "lucide-react";
+import { ArrowLeft, MapPin, Calendar, Sparkles, Pencil } from "lucide-react";
 import { serviceRequestsApi, quotationsApi } from "@/services/api";
 import { useAuthStore } from "@/store/auth";
 import { Card, PageHeader, Loading, StatusBadge, Tabs } from "@/components/ui/kit";
@@ -38,7 +38,17 @@ export default function ServiceRequestDetailPage() {
     catch (e: any) { toast.error("Failed", e?.message); } finally { setBusy(""); }
   };
 
-  const recommended = quotations?.filter((q) => ["SUBMITTED", "SHORTLISTED", "UNDER_REVIEW"].includes(q.status)).sort((a, b) => Number(a.price) - Number(b.price))[0];
+  const eligibleQuotes = (quotations ?? []).filter((q) => ["SUBMITTED", "SHORTLISTED", "UNDER_REVIEW"].includes(q.status));
+  // A "recommended" pick only means something when there are 2+ competing
+  // quotes — with a single quote there is nothing to compare against.
+  const recommended = eligibleQuotes.length >= 2
+    ? [...eligibleQuotes].sort((a, b) => Number(a.price) - Number(b.price))[0]
+    : undefined;
+  const recommendedReason = recommended
+    ? Number(recommended.price) === Math.min(...eligibleQuotes.map((q) => Number(q.price)))
+      ? "Lowest price"
+      : "Best overall value"
+    : "";
 
   const [matches, setMatches] = useState<any[]>([]);
 
@@ -51,12 +61,18 @@ export default function ServiceRequestDetailPage() {
     }
   }, [id, sr?.status, isHiring, loadQuotes]);
 
+  const canEdit = isHiring && ["DRAFT", "OPEN"].includes(sr?.status);
+  const startEdit = () => {
+    sessionStorage.setItem("editRequestId", id as string);
+    router.push("/service-requests");
+  };
+
   if (sr === undefined) return <div className="rounded-xl border border-border bg-ivory p-6 text-sm text-sage">Request not found.</div>;
   if (!sr) return <Loading />;
 
   return (
     <div className="space-y-6">
-      <PageHeader title={sr.title || "Service request"} subtitle={`${sr.organization?.name || "Request"} · Created ${dateShort(sr.createdAt)}`} actions={<><StatusBadge status={sr.status} /><Button variant="outline" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" /> Back</Button></>} />
+      <PageHeader title={sr.title || "Service request"} subtitle={`${sr.organization?.name || "Request"} · Created ${dateShort(sr.createdAt)}`} actions={<><StatusBadge status={sr.status} />{canEdit && <Button variant="outline" onClick={startEdit}><Pencil className="h-4 w-4" /> Edit</Button>}<Button variant="outline" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" /> Back</Button></>} />
 
       <div className="flex flex-wrap items-center gap-4">
         <Tabs tabs={VIEWS.map((v) => ({ ...v, count: v.key === "quotations" ? quotations?.length ?? 0 : undefined }))} active={view} onChange={setView} />
@@ -117,7 +133,7 @@ export default function ServiceRequestDetailPage() {
                 <Card key={q.id} className={`p-5 ${q.status === "ACCEPTED" || recommended?.id === q.id ? "border-pine ring-1 ring-pine/30" : ""}`}>
                   <div className="flex items-center justify-between">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brass-soft font-bold text-[#7A5E2E]">{q.provider?.name?.slice(0, 1).toUpperCase()}</div>
-                    <div className="flex flex-col items-end gap-1"><StatusBadge status={q.status} />{recommended?.id === q.id && <span className="flex items-center gap-1 text-[11px] font-bold text-pine"><Sparkles className="h-3 w-3" /> Recommended</span>}</div>
+                    <div className="flex flex-col items-end gap-1"><StatusBadge status={q.status} />{recommended?.id === q.id && <span className="flex items-center gap-1 text-[11px] font-bold text-pine" title={`Recommended: ${recommendedReason}`}><Sparkles className="h-3 w-3" /> Recommended{recommendedReason && <span className="font-semibold text-pine/70">· {recommendedReason}</span>}</span>}</div>
                   </div>
                   <h4 className="mt-3 font-semibold text-charcoal">{q.provider?.name || "Provider"}</h4>
                   <p className="mt-1 text-2xl font-bold text-charcoal">{money(q.price)}</p>

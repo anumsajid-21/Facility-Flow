@@ -4,6 +4,9 @@ services:
     runtime: node
     # "starter" = always-on instance (free tier spins down and has cold starts).
     plan: starter
+    # Must match the database region — internal hostnames only resolve
+    # within the same region (P1001 otherwise).
+    region: virginia
     rootDir: backend
     buildCommand: npm install && npx prisma generate && npm run build
     startCommand: npx prisma migrate deploy && npm run start:prod
@@ -59,6 +62,7 @@ services:
     name: facilityflow-frontend
     runtime: node
     plan: starter
+    region: virginia
     rootDir: frontend
     buildCommand: npm install && npm run build
     startCommand: npm start

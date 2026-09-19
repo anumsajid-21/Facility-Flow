@@ -108,8 +108,6 @@ export function apiError(err: any): string {
 
 export const authService = {
   login: async (data: { email: string; password: string }) => unwrap(await api.post("/auth/login", data)),
-  forgotPassword: async (email: string) => unwrap(await api.post("/auth/forgot-password", { email })),
-  resetPassword: async (token: string, password: string) => unwrap(await api.post("/auth/reset-password", { token, password })),
   register: async (data: any) => unwrap(await api.post("/auth/register", data)),
   getProfile: async () => unwrap(await api.get("/auth/me")),
   logout: async (refresh_token: string) => unwrap(await api.post("/auth/logout", { refresh_token })),

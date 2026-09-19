@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { FileText, Plus, Search, AlertCircle, Sparkles, Loader2, CheckCircle2, Mic, MicOff } from "lucide-react";
+import { FileText, Plus, Search, AlertCircle, Sparkles, Loader2, CheckCircle2, Mic, MicOff, Pencil } from "lucide-react";
 import { serviceRequestsApi, facilitiesApi, apiError } from "@/services/api";
 import { Card, PageHeader, EmptyState, Modal, Field, Input, Textarea, Select, Loading, Tabs, StatusBadge } from "@/components/ui/kit";
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,8 @@ export default function ServiceRequestsPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({ title: "", description: "", categoryId: "", buildingId: "", floorId: "", areaId: "", priority: "NORMAL", budget: "", preferredDate: "" });
+  // When set, the modal edits an existing request (PATCH) instead of creating one.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [categories, setCategories] = useState<any[]>([]);
 
   // AI Assist — purely a helper that pre-fills the fields above; submission still goes through create().
@@ -101,6 +103,16 @@ export default function ServiceRequestsPage() {
     serviceRequestsApi.aiAssistStatus().then((r) => setAiEnabled(!!r?.enabled)).catch(() => setAiEnabled(false));
   }, []);
 
+  // Detail page hands off "edit this request" via sessionStorage, then navigates here.
+  useEffect(() => {
+    const editId = typeof window !== "undefined" ? sessionStorage.getItem("editRequestId") : null;
+    if (editId) {
+      sessionStorage.removeItem("editRequestId");
+      openEdit(editId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const resetAi = () => {
     setAiOpen(false);
     setAiText("");
@@ -147,22 +159,32 @@ export default function ServiceRequestsPage() {
     toast.success("Suggestions applied", "Review the fields below, then submit as usual.");
   };
 
+  const lastBuildingRef = useRef("");
   useEffect(() => {
     if (form.buildingId) {
       facilitiesApi.floors(form.buildingId).then(setFloors).catch(() => setFloors([]));
     } else {
       setFloors([]);
     }
-    setForm((f) => ({ ...f, floorId: "", areaId: "" }));
+    // Clear floor/area only when the building actually changed — not when an
+    // edit modal pre-fills building+floor+area in one go.
+    if (lastBuildingRef.current !== "" && lastBuildingRef.current !== form.buildingId) {
+      setForm((f) => ({ ...f, floorId: "", areaId: "" }));
+    }
+    lastBuildingRef.current = form.buildingId;
   }, [form.buildingId]);
 
+  const lastFloorRef = useRef("");
   useEffect(() => {
     if (form.floorId) {
       facilitiesApi.areas(form.floorId).then(setAreas).catch(() => setAreas([]));
     } else {
       setAreas([]);
     }
-    setForm((f) => ({ ...f, areaId: "" }));
+    if (lastFloorRef.current !== "" && lastFloorRef.current !== form.floorId) {
+      setForm((f) => ({ ...f, areaId: "" }));
+    }
+    lastFloorRef.current = form.floorId;
   }, [form.floorId]);
 
   const filtered = (items ?? []).filter((r) => {
@@ -173,6 +195,7 @@ export default function ServiceRequestsPage() {
   });
   const countFor = (k: string) => k === "all" ? (items ?? []).length : (items ?? []).filter((r) => r.status === k).length;
 
+  // Creates a new request, or saves changes to an existing one (editingId set).
   const create = async () => {
     setError("");
     const selectedCategory = categories.find((c) => c.id === form.categoryId);
@@ -191,38 +214,45 @@ export default function ServiceRequestsPage() {
       return;
     }
     setBusy(true);
-    try {
-      const payload: any = {
+    const payload: any = {
         title,
         description: form.description.trim(),
         buildingId: form.buildingId,
         priority: form.priority,
         // "Other" is a UI-only choice; the API accepts only real category UUIDs.
         categoryId: isOther || !isUuid(form.categoryId) ? undefined : form.categoryId,
-        budget: form.budget ? Number(form.budget) : undefined,
+        // Empty string clears the budget on the server (stored as null).
+        budget: form.budget ? Number(form.budget) : null,
         preferredDate: form.preferredDate || undefined,
-        floorId: form.floorId || undefined,
-        areaId: form.areaId || undefined,
+        floorId: form.floorId || null,
+        areaId: form.areaId || null,
       };
-      const result = await serviceRequestsApi.create(payload);
-      if (result) {
-        // Publish immediately so the request is live, appears under "Open" and counts on the dashboard.
-        try { await serviceRequestsApi.submit(result.id); } catch { /* stays as draft if submit fails */ }
-        toast.success("Request created", "Your service request is now open for quotations.");
-        setOpenCreate(false);
-        setForm({ title: "", description: "", categoryId: "", buildingId: "", floorId: "", areaId: "", priority: "NORMAL", budget: "", preferredDate: "" });
-        setFloors([]);
-        setAreas([]);
-        load();
+      try {
+        if (editingId) {
+          await serviceRequestsApi.update(editingId, payload);
+          toast.success("Request updated", "Your changes have been saved.");
+          setOpenCreate(false);
+          resetForm();
+          load();
+        } else {
+          const result = await serviceRequestsApi.create(payload);
+          if (result) {
+            // Publish immediately so the request is live, appears under "Open" and counts on the dashboard.
+            try { await serviceRequestsApi.submit(result.id); } catch { /* stays as draft if submit fails */ }
+            toast.success("Request created", "Your service request is now open for quotations.");
+            setOpenCreate(false);
+            resetForm();
+            load();
+          }
+        }
+      } catch (e: any) {
+        console.error("Save request failed:", e);
+        const msg = apiError(e);
+        setError(msg);
+        toast.error("Failed", msg);
+      } finally {
+        setBusy(false);
       }
-    } catch (e: any) {
-      console.error("Create request failed:", e);
-      const msg = apiError(e);
-      setError(msg);
-      toast.error("Failed", msg);
-    } finally {
-      setBusy(false);
-    }
   };
 
   const resetForm = () => {
@@ -230,8 +260,33 @@ export default function ServiceRequestsPage() {
     setFloors([]);
     setAreas([]);
     setError("");
+    setEditingId(null);
     setOpenCreate(false);
     resetAi();
+  };
+
+  // Pre-fills the shared modal with an existing request's values.
+  const openEdit = async (requestId: string) => {
+    setError("");
+    try {
+      const r = await serviceRequestsApi.get(requestId);
+      const categoryMatch = r.categoryId ? categories.find((c) => c.id === r.categoryId) : null;
+      setForm({
+        title: r.title || "",
+        description: r.description || "",
+        categoryId: categoryMatch ? r.categoryId : r.categoryId ? "OTHER" : "",
+        buildingId: r.buildingId || "",
+        floorId: r.floorId || "",
+        areaId: r.areaId || "",
+        priority: r.priority || "NORMAL",
+        budget: r.budget != null ? String(r.budget) : "",
+        preferredDate: r.preferredDate ? String(r.preferredDate).slice(0, 10) : "",
+      });
+      setEditingId(requestId);
+      setOpenCreate(true);
+    } catch (e: any) {
+      toast.error("Failed", apiError(e) || "Could not load the request for editing.");
+    }
   };
 
   return (
@@ -246,7 +301,7 @@ export default function ServiceRequestsPage() {
       ) : (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto"><table className="w-full">
-            <thead className="bg-pine/5"><tr><th className="px-4 py-3 text-left text-xs font-semibold uppercase text-sage">Request</th><th className="px-4 py-3 text-left text-xs font-semibold uppercase text-sage">Building</th><th className="px-4 py-3 text-left text-xs font-semibold uppercase text-sage">Budget</th><th className="px-4 py-3 text-left text-xs font-semibold uppercase text-sage">Status</th><th className="px-4 py-3 text-left text-xs font-semibold uppercase text-sage">Created</th></tr></thead>
+            <thead className="bg-pine/5"><tr><th className="px-4 py-3 text-left text-xs font-semibold uppercase text-sage">Request</th><th className="px-4 py-3 text-left text-xs font-semibold uppercase text-sage">Building</th><th className="px-4 py-3 text-left text-xs font-semibold uppercase text-sage">Budget</th><th className="px-4 py-3 text-left text-xs font-semibold uppercase text-sage">Status</th><th className="px-4 py-3 text-left text-xs font-semibold uppercase text-sage">Created</th><th className="px-4 py-3 text-right text-xs font-semibold uppercase text-sage">Actions</th></tr></thead>
             <tbody className="divide-y divide-border">{filtered.map((r) => (
               <tr key={r.id} className="transition-colors hover:bg-muted/40">
                 <td className="px-4 py-3"><Link href={`/service-requests/${r.id}`} className="text-sm font-medium text-charcoal hover:text-pine">{r.title || "Untitled request"}</Link><p className="max-w-xs truncate text-xs text-sage">{r.description}</p></td>
@@ -254,12 +309,22 @@ export default function ServiceRequestsPage() {
                 <td className="px-4 py-3 text-sm font-medium text-charcoal">{r.budget ? money(r.budget) : ""}</td>
                 <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
                 <td className="px-4 py-3 text-sm text-sage">{dateShort(r.createdAt)}</td>
+                <td className="px-4 py-3 text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    {["DRAFT", "OPEN"].includes(r.status) && (
+                      <Button variant="ghost" size="sm" onClick={() => openEdit(r.id)} title="Edit request">
+                        <Pencil className="h-3.5 w-3.5" /> Edit
+                      </Button>
+                    )}
+                    <Link href={`/service-requests/${r.id}`} className="rounded-lg px-2 py-1.5 text-sm font-medium text-pine hover:bg-muted">View</Link>
+                  </div>
+                </td>
               </tr>
             ))}</tbody>
           </table></div>
         </Card>
       )}
-      <Modal open={openCreate} onClose={resetForm} title="Create service request">
+      <Modal open={openCreate} onClose={resetForm} title={editingId ? "Edit service request" : "Create service request"}>
         <form onSubmit={(e) => { e.preventDefault(); create(); }} className="space-y-4">
           {error && (
             <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -268,7 +333,7 @@ export default function ServiceRequestsPage() {
             </div>
           )}
 
-          {aiEnabled && (
+          {aiEnabled && !editingId && (
             <div className="rounded-xl border border-brass/40 bg-brass-soft/30 p-3">
               {!aiOpen ? (
                 <button
@@ -394,7 +459,7 @@ export default function ServiceRequestsPage() {
             <Field label="Budget"><Input type="number" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} placeholder="1500" /></Field>
             <Field label="Preferred date"><Input type="date" value={form.preferredDate} onChange={(e) => setForm({ ...form, preferredDate: e.target.value })} /></Field>
           </div>
-          <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="outline" onClick={resetForm}>Cancel</Button><Button type="submit" loading={busy}>Create</Button></div>
+          <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="outline" onClick={resetForm}>Cancel</Button><Button type="submit" loading={busy}>{editingId ? "Save changes" : "Create"}</Button></div>
         </form>
       </Modal>
     </div>

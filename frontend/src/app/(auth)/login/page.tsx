@@ -78,9 +78,6 @@ export default function LoginPage() {
               {isSubmitting ? "Signing in…" : "Sign in"} {!isSubmitting && <ArrowRight className="h-4 w-4" />}
             </Button>
           </form>
-          <p className="mt-6 text-center text-sm text-sage">
-            <Link href="/forgot-password" className="font-medium text-pine hover:underline">Forgot password?</Link>
-          </p>
           <p className="mt-3 text-center text-sm text-sage">
             Don&apos;t have an account?{" "}
             <Link href="/register" className="font-medium text-pine hover:underline">Create one</Link>

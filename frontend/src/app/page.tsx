@@ -101,21 +101,23 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="mx-auto mt-8 flex w-full max-w-5xl flex-col items-center text-center">
+      {/* Hero: fills the entire first viewport (minus header) and centers its
+          content, so the fold lands exactly at the stats bar on any screen. */}
+      <main className="mx-auto flex min-h-[calc(100svh-5.5rem)] w-full max-w-5xl flex-col items-center justify-center text-center">
         <div className="inline-flex items-center rounded-full border border-border bg-[#f2f5f5] px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-pine">
           B2B Facility Operations Platform
         </div>
 
-        <h1 className="mt-8 max-w-4xl text-5xl font-black leading-[0.9] tracking-[-0.06em] text-charcoal sm:text-6xl lg:text-[6rem]">
+        <h1 className="mt-6 max-w-5xl text-4xl font-black leading-[0.95] tracking-[-0.05em] text-charcoal sm:text-6xl lg:text-7xl">
           Reliable facility operations,
           <span className="block">run with clarity.</span>
         </h1>
 
-        <p className="mt-6 max-w-4xl text-base leading-relaxed text-sage sm:text-[1.75rem] sm:leading-[1.35]">
+        <p className="mt-5 max-w-3xl text-base leading-relaxed text-sage sm:text-xl">
           Connect with vetted service providers, manage requests and quotations, and track every job from schedule to approval — in one place.
         </p>
 
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
+        <div className="mt-7 flex flex-wrap items-center justify-center gap-4">
           <Link href="/register">
             <button className="flex items-center gap-2 rounded-xl border border-border bg-brass px-7 py-3 text-base font-bold text-pine-darker transition hover:bg-[#d09544]">
               Hire a Service <ArrowRight className="h-4 w-4" />
@@ -139,8 +141,10 @@ export default function Home() {
             <span>Trusted by facility teams</span>
           </div>
         </div>
+      </main>
 
-        <div className="mt-12 w-full max-w-5xl text-left">
+      {/* Starts just below the fold — the viewport-height hero owns screen one. */}
+      <section className="mx-auto mt-20 w-full max-w-5xl text-left">
           <h2 className="text-4xl font-black tracking-[-0.05em] text-charcoal">How It Works</h2>
 
           <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -160,8 +164,7 @@ export default function Home() {
               </div>
             ))}
           </div>
-        </div>
-      </main>
+      </section>
 
       <footer className="mx-auto mt-10 flex w-full max-w-6xl flex-col items-center justify-between gap-2 border-t border-border py-4 text-sm text-sage sm:flex-row">
         <span>© {new Date().getFullYear()} FacilityFlow. Enterprise Facility Operations.</span>
