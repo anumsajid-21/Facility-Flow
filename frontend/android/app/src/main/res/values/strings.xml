@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FacilityFlow</string>
+    <string name="title_activity_main">FacilityFlow</string>
+    <string name="package_name">com.facilityflow.app</string>
+    <string name="custom_url_scheme">com.facilityflow.app</string>
+</resources>

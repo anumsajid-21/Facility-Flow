@@ -1,0 +1,4 @@
+Date,Invoice #,Provider,Organization,Category,Amount,Method,Reference,Status
+2026-09-10,DEMO-0003,Demo Maintenance Pros,Demo Facilities Co,Commercial Cleaning,1320.00,BANK_TRANSFER,DEMO-PAY-0003,COMPLETED
+2026-09-11,DEMO-0004,Demo Maintenance Pros,Demo Facilities Co,HVAC,300.00,CARD,DEMO-PARTIAL-0004,COMPLETED
+2026-09-12,INV-9C3D1250-101C4A44,Demo Maintenance Pros,Demo Facilities Co,Electrical,220.00,BANK_TRANSFER,DEMO-PAY-220,COMPLETED

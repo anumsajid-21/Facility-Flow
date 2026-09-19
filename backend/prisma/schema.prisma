@@ -1,0 +1,970 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============= ENUMS =============
+
+enum Role {
+  HIRING_ORG
+  PROVIDER
+  ADMIN
+  WORKER
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  DOCUMENTS_SUBMITTED
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+  SUSPENDED
+}
+
+enum ServiceRequestStatus {
+  DRAFT
+  OPEN
+  QUOTATIONS_RECEIVED
+  UNDER_REVIEW
+  PROVIDER_SELECTED
+  CANCELLED
+  CLOSED
+}
+
+enum QuotationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  SHORTLISTED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  WITHDRAWN
+}
+
+enum ContractStatus {
+  DRAFT
+  PENDING_APPROVAL
+  ACTIVE
+  EXPIRING
+  EXPIRED
+  CANCELLED
+  TERMINATED
+}
+
+enum JobStatus {
+  SCHEDULED
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  AWAITING_APPROVAL
+  REWORK
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum ApprovalDecision {
+  APPROVED
+  REWORK_REQUESTED
+}
+
+enum FileKind {
+  PROVIDER_DOCUMENT
+  CONTRACT_DOCUMENT
+  JOB_PHOTO
+  SERVICE_REPORT
+  SERVICE_REQUEST_ATTACHMENT
+  MESSAGE_AUDIO
+  OTHER
+}
+
+enum RecurrenceFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  CUSTOM
+}
+
+// ============= IDENTITY & TENANCY =============
+
+model User {
+  id          String   @id @default(uuid())
+  email       String   @unique
+  password    String
+  name        String
+  role        Role
+  avatarUrl   String?
+  phone       String?
+  hiringOrgId String?
+  providerId  String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  hiringOrg              Organization?           @relation(fields: [hiringOrgId], references: [id])
+  provider               Provider?               @relation(fields: [providerId], references: [id])
+  workerProfile          Worker?                 @relation("WorkerUser")
+  notificationPreference NotificationPreference?
+  memberships            OrganizationMember[]
+  notifications          Notification[]
+  approvalsMade          Approval[]
+  auditActions           AuditLog[]
+  uploadedFiles          File[]
+  contractVersions       ContractVersion[]
+  paymentsRecorded       Payment[]
+  serviceRequests        ServiceRequest[]        @relation("ServiceRequestCreator")
+  invoicesCreated        Invoice[]               @relation("InvoiceCreator")
+  assetHistory           AssetHistory[]
+  proofCompleted         ProofOfWork[]           @relation("ProofCompleter")
+  reworkRequested        ReworkRequest[]         @relation("ReworkRequester")
+  documentsReviewed      VerificationDocument[]  @relation("DocumentReviewer")
+  sentMessages           Message[]
+  messageThreads         MessageThread[]         @relation("ThreadCreator")
+  passwordResetTokens    PasswordResetToken[]
+
+  @@index([hiringOrgId])
+  @@index([providerId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model Organization {
+  id           String   @id @default(uuid())
+  name         String
+  logoUrl      String?
+  description  String?
+  contactEmail String?
+  contactPhone String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  members         OrganizationMember[]
+  users           User[]
+  buildings       Building[]
+  serviceRequests ServiceRequest[]
+  contracts       Contract[]
+  invoices        Invoice[]
+  reviews         Review[]
+  shortlists      ProviderShortlist[]
+  assets          Asset[]
+  messageThreads  MessageThread[]
+
+  @@index([name])
+}
+
+model OrganizationMember {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String
+  role           String   @default("ADMIN")
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@unique([organizationId, userId])
+}
+
+// ============= PROVIDER =============
+
+model Provider {
+  id                 String             @id @default(uuid())
+  name               String
+  description        String?
+  contactInfo        String?
+  logoUrl            String?
+  bankName           String?
+  accountNumber      String?
+  routingNumber      String?
+  experience         String?
+  workforceCapacity  Int?
+  operatingInfo      String?
+  serviceAreaText    String?
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  users                 User[]
+  services              ProviderService[]
+  serviceAreas          ProviderServiceArea[]
+  documents             ProviderDocument[]
+  quotations            Quotation[]
+  contracts             Contract[]
+  workers               Worker[]
+  invoices              Invoice[]
+  reviews               Review[]
+  shortlists            ProviderShortlist[]
+  customChecklists      Checklist[]
+  verificationDocuments VerificationDocument[]
+  messageThreads        MessageThread[]
+  slaPolicies           SlaPolicy[]
+
+  @@index([verificationStatus])
+}
+
+model ProviderService {
+  id         String   @id @default(uuid())
+  providerId String
+  categoryId String
+  priceNote  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  provider Provider        @relation(fields: [providerId], references: [id])
+  category ServiceCategory @relation(fields: [categoryId], references: [id])
+
+  @@unique([providerId, categoryId])
+}
+
+model ProviderServiceArea {
+  id         String   @id @default(uuid())
+  providerId String
+  areaName   String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  provider Provider @relation(fields: [providerId], references: [id])
+
+  @@unique([providerId, areaName])
+}
+
+model ProviderDocument {
+  id           String   @id @default(uuid())
+  providerId   String
+  documentType String
+  fileId       String   @unique
+  uploadedAt   DateTime @default(now())
+
+  provider Provider @relation(fields: [providerId], references: [id])
+  file     File     @relation(fields: [fileId], references: [id])
+}
+
+model ProviderShortlist {
+  id             String   @id @default(uuid())
+  organizationId String
+  providerId     String
+  matchScore     Float?
+  rationale      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  provider     Provider     @relation(fields: [providerId], references: [id])
+
+  @@unique([organizationId, providerId])
+}
+
+model ServiceCategory {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  providers  ProviderService[]
+  checklists Checklist[]
+  requests   ServiceRequest[]
+}
+
+// ============= FACILITIES =============
+
+model Building {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  address        String
+  city           String
+  buildingType   String?
+  numberOfFloors Int?
+  operatingInfo  String?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  isArchived     Boolean  @default(false)
+
+  organization    Organization     @relation(fields: [organizationId], references: [id])
+  floors          Floor[]
+  serviceRequests ServiceRequest[]
+  contracts       Contract[]
+  jobs            Job[]
+
+  @@index([organizationId])
+  @@index([organizationId, city])
+}
+
+model Floor {
+  id         String   @id @default(uuid())
+  buildingId String
+  name       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  isArchived Boolean  @default(false)
+
+  building        Building         @relation(fields: [buildingId], references: [id])
+  areas           Area[]
+  serviceRequests ServiceRequest[]
+  jobs            Job[]
+
+  @@index([buildingId])
+}
+
+model Area {
+  id         String   @id @default(uuid())
+  floorId    String
+  name       String
+  category   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  isArchived Boolean  @default(false)
+
+  floor           Floor            @relation(fields: [floorId], references: [id])
+  assets          Asset[]
+  serviceRequests ServiceRequest[]
+  jobs            Job[]
+
+  @@index([floorId])
+}
+
+// ============= ASSETS =============
+
+model Asset {
+  id                   String    @id @default(uuid())
+  organizationId       String
+  areaId               String?
+  assetId              String
+  name                 String
+  category             String?
+  brand                String?
+  model                String?
+  serialNumber         String?
+  location             String?
+  installationDate     DateTime?
+  warranty             String?
+  maintenanceFrequency String?
+  status               String    @default("OPERATIONAL")
+  notes                String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  isArchived           Boolean   @default(false)
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  area         Area?          @relation(fields: [areaId], references: [id])
+  history      AssetHistory[]
+
+  @@index([organizationId])
+  @@index([areaId])
+  @@index([assetId])
+  @@index([category])
+}
+
+model AssetHistory {
+  id          String   @id @default(uuid())
+  assetId     String
+  event       String
+  description String?
+  actorUserId String?
+  details     Json?
+  timestamp   DateTime @default(now())
+
+  asset Asset @relation(fields: [assetId], references: [id])
+  actor User? @relation(fields: [actorUserId], references: [id])
+
+  @@index([assetId, timestamp])
+}
+
+// ============= SERVICE REQUESTS =============
+
+model ServiceRequest {
+  id                 String               @id @default(uuid())
+  organizationId     String
+  createdById        String?
+  categoryId         String?
+  title              String
+  description        String
+  buildingId         String
+  floorId            String?
+  areaId             String?
+  requirements       String?
+  preferredDate      DateTime?
+  frequency          String?
+  budget             Float?
+  priority           String?
+  status             ServiceRequestStatus @default(DRAFT)
+  isArchived         Boolean              @default(false)
+  cancellationReason String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  organization   Organization               @relation(fields: [organizationId], references: [id])
+  createdBy      User?                      @relation("ServiceRequestCreator", fields: [createdById], references: [id])
+  category       ServiceCategory?           @relation(fields: [categoryId], references: [id])
+  building       Building                   @relation(fields: [buildingId], references: [id])
+  floor          Floor?                     @relation(fields: [floorId], references: [id])
+  area           Area?                      @relation(fields: [areaId], references: [id])
+  quotations     Quotation[]
+  attachments    ServiceRequestAttachment[]
+  messageThreads MessageThread[]
+
+  @@index([organizationId, status])
+  @@index([categoryId])
+  @@index([buildingId])
+}
+
+model ServiceRequestAttachment {
+  id               String   @id @default(uuid())
+  serviceRequestId String
+  fileId           String   @unique
+  createdAt        DateTime @default(now())
+
+  serviceRequest ServiceRequest @relation(fields: [serviceRequestId], references: [id])
+  file           File           @relation(fields: [fileId], references: [id])
+}
+
+// ============= QUOTATIONS =============
+
+model Quotation {
+  id               String          @id @default(uuid())
+  serviceRequestId String
+  providerId       String
+  price            Decimal         @db.Decimal(12, 2)
+  laborCost        Decimal?        @db.Decimal(12, 2)
+  materialCost     Decimal?        @db.Decimal(12, 2)
+  numberOfWorkers  Int?
+  duration         String?
+  equipment        String?
+  sla              String?
+  warranty         String?
+  terms            String?
+  expiryDate       DateTime?
+  notes            String?
+  status           QuotationStatus @default(DRAFT)
+  submittedAt      DateTime?
+  shortlistedAt    DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  serviceRequest ServiceRequest @relation(fields: [serviceRequestId], references: [id])
+  provider       Provider       @relation(fields: [providerId], references: [id])
+  contract       Contract?
+
+  @@unique([serviceRequestId, providerId])
+  @@index([serviceRequestId, status])
+  @@index([providerId])
+}
+
+// ============= CONTRACTS =============
+
+model Contract {
+  id                String               @id @default(uuid())
+  organizationId    String
+  providerId        String
+  serviceRequestId  String?
+  quotationId       String?              @unique
+  buildingId        String
+  serviceName       String?
+  price             Decimal              @db.Decimal(12, 2)
+  startDate         DateTime
+  endDate           DateTime?
+  frequency         RecurrenceFrequency?
+  occurrencesLimit  Int?
+  customRecurrence  String?
+  sla               String?
+  paymentTerms      String?
+  cancellationTerms String?
+  responsibilities  String?
+  renewalTerms      String?
+  status            ContractStatus       @default(DRAFT)
+  title             String?
+  cancelledAt       DateTime?
+  terminatedAt      DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  organization     Organization      @relation(fields: [organizationId], references: [id])
+  provider         Provider          @relation(fields: [providerId], references: [id])
+  building         Building          @relation(fields: [buildingId], references: [id])
+  quotation        Quotation?        @relation(fields: [quotationId], references: [id])
+  contractVersions ContractVersion[]
+  jobs             Job[]
+  invoices         Invoice[]
+  schedule         ContractSchedule?
+  messageThreads   MessageThread[]
+
+  @@index([organizationId, status])
+  @@index([providerId, status])
+}
+
+model ContractVersion {
+  id          String   @id @default(uuid())
+  contractId  String
+  version     Int
+  creatorId   String
+  changes     String?
+  documentUrl String?
+  snapshot    String?
+  createdAt   DateTime @default(now())
+
+  contract Contract @relation(fields: [contractId], references: [id])
+  creator  User     @relation(fields: [creatorId], references: [id])
+
+  @@unique([contractId, version])
+}
+
+// ============= WORKERS =============
+
+model Worker {
+  id             String   @id @default(uuid())
+  providerId     String
+  name           String
+  email          String?  @unique
+  inviteStatus   String   @default("PENDING")
+  userId         String?  @unique
+  skills         String?
+  certifications String?
+  availability   String?
+  status         String   @default("ACTIVE")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  provider    Provider           @relation(fields: [providerId], references: [id])
+  user        User?              @relation("WorkerUser", fields: [userId], references: [id])
+  assignments WorkerAssignment[]
+
+  @@index([providerId])
+}
+
+// ============= JOBS & ASSIGNMENTS =============
+
+model Job {
+  id             String    @id @default(uuid())
+  contractId     String
+  buildingId     String
+  floorId        String?
+  areaId         String?
+  title          String?
+  location       String?
+  date           DateTime
+  startTime      DateTime
+  endTime        DateTime
+  instructions   String?
+  requiredSkills String?
+  status         JobStatus @default(SCHEDULED)
+  serviceName    String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  contract          Contract             @relation(fields: [contractId], references: [id])
+  building          Building             @relation(fields: [buildingId], references: [id])
+  floor             Floor?               @relation(fields: [floorId], references: [id])
+  area              Area?                @relation(fields: [areaId], references: [id])
+  workerAssignments WorkerAssignment[]
+  checklistResults  JobChecklistResult[]
+  proofOfWork       ProofOfWork[]
+  approvals         Approval[]
+  reworkRequests    ReworkRequest[]
+  invoices          Invoice[]
+  sla               JobSla?
+
+  @@index([contractId, status])
+  @@index([buildingId])
+  @@index([date])
+}
+
+model WorkerAssignment {
+  id         String   @id @default(uuid())
+  jobId      String
+  workerId   String
+  assignedBy String?
+  assignedAt DateTime @default(now())
+
+  job    Job    @relation(fields: [jobId], references: [id])
+  worker Worker @relation(fields: [workerId], references: [id])
+
+  @@unique([jobId, workerId])
+  @@index([workerId])
+}
+
+// ============= CHECKLISTS =============
+
+model Checklist {
+  id          String   @id @default(uuid())
+  name        String
+  categoryId  String?
+  providerId  String?
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category ServiceCategory? @relation(fields: [categoryId], references: [id])
+  provider Provider?        @relation(fields: [providerId], references: [id])
+  items    ChecklistItem[]
+}
+
+model ChecklistItem {
+  id          String   @id @default(uuid())
+  checklistId String
+  description String
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  checklist Checklist            @relation(fields: [checklistId], references: [id])
+  results   JobChecklistResult[]
+}
+
+model JobChecklistResult {
+  id              String   @id @default(uuid())
+  jobId           String
+  checklistId     String?
+  checklistItemId String
+  isChecked       Boolean  @default(false)
+  notes           String?
+  checkedAt       DateTime @updatedAt
+
+  job           Job           @relation(fields: [jobId], references: [id])
+  checklistItem ChecklistItem @relation(fields: [checklistItemId], references: [id])
+
+  @@unique([jobId, checklistItemId])
+}
+
+// ============= PROOF OF WORK / APPROVAL / REWORK =============
+
+model ProofOfWork {
+  id             String   @id @default(uuid())
+  jobId          String
+  providerNote   String?
+  completionNote String?
+  completedAt    DateTime @default(now())
+  completedById  String?
+  workerName     String?
+
+  beforePhotos File[] @relation("BeforePhotos")
+  afterPhotos  File[] @relation("AfterPhotos")
+
+  job       Job   @relation(fields: [jobId], references: [id])
+  completer User? @relation("ProofCompleter", fields: [completedById], references: [id])
+
+  @@index([jobId])
+}
+
+model Approval {
+  id               String           @id @default(uuid())
+  jobId            String
+  approvedByUserId String?
+  decision         ApprovalDecision
+  notes            String?
+  createdAt        DateTime         @default(now())
+
+  job        Job   @relation(fields: [jobId], references: [id])
+  approvedBy User? @relation(fields: [approvedByUserId], references: [id])
+
+  @@index([jobId, decision])
+}
+
+model ReworkRequest {
+  id            String    @id @default(uuid())
+  jobId         String
+  reason        String
+  requestedById String?
+  resolution    String?
+  attemptNumber Int       @default(1)
+  createdAt     DateTime  @default(now())
+  resolvedAt    DateTime?
+
+  job       Job   @relation(fields: [jobId], references: [id])
+  requester User? @relation("ReworkRequester", fields: [requestedById], references: [id])
+
+  @@index([jobId])
+}
+
+// ============= INVOICES / PAYMENTS =============
+
+model Invoice {
+  id             String        @id @default(uuid())
+  invoiceNumber  String        @unique
+  providerId     String
+  organizationId String
+  contractId     String
+  jobId          String?
+  amount         Decimal       @db.Decimal(12, 2)
+  tax            Decimal?      @db.Decimal(12, 2)
+  discount       Decimal?      @db.Decimal(12, 2)
+  total          Decimal       @db.Decimal(12, 2)
+  issuedById     String?
+  dueDate        DateTime
+  status         InvoiceStatus @default(DRAFT)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  provider     Provider     @relation(fields: [providerId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  contract     Contract     @relation(fields: [contractId], references: [id])
+  job          Job?         @relation(fields: [jobId], references: [id])
+  issuedBy     User?        @relation("InvoiceCreator", fields: [issuedById], references: [id])
+  payments     Payment[]
+
+  @@index([organizationId, status])
+  @@index([providerId, status])
+  @@index([contractId])
+}
+
+model Payment {
+  id               String   @id @default(uuid())
+  invoiceId        String
+  amount           Decimal  @db.Decimal(12, 2)
+  paymentReference String?
+  date             DateTime
+  paymentMethod    String?
+  status           String   @default("COMPLETED")
+  recordedById     String?
+  createdAt        DateTime @default(now())
+
+  invoice    Invoice @relation(fields: [invoiceId], references: [id])
+  recordedBy User?   @relation(fields: [recordedById], references: [id])
+
+  @@index([invoiceId])
+  @@index([invoiceId, status])
+}
+
+// ============= REVIEWS =============
+
+model Review {
+  id              String   @id @default(uuid())
+  providerId      String
+  organizationId  String
+  jobId           String?
+  quality         Int
+  timeliness      Int
+  professionalism Int
+  value           Int
+  overallRating   Float
+  comments        String?
+  createdAt       DateTime @default(now())
+
+  provider     Provider     @relation(fields: [providerId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, providerId, jobId])
+  @@index([providerId])
+  @@index([organizationId])
+}
+
+// ============= NOTIFICATIONS =============
+
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  message   String?
+  isRead    Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+}
+
+// ============= AUDIT LOGS =============
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  action     String
+  entityType String
+  entityId   String?
+  details    String?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@index([createdAt])
+}
+
+// ============= FILE STORAGE =============
+
+model File {
+  id           String   @id @default(uuid())
+  originalName String
+  mimeType     String
+  size         Int
+  storageKey   String   @unique
+  kind         FileKind
+  uploadedById String?
+  createdAt    DateTime @default(now())
+
+  uploadedBy                User?                      @relation(fields: [uploadedById], references: [id])
+  providerDocuments         ProviderDocument[]
+  verificationDocuments     VerificationDocument[]
+  serviceRequestAttachments ServiceRequestAttachment[]
+  beforeProof               ProofOfWork[]              @relation("BeforePhotos")
+  afterProof                ProofOfWork[]              @relation("AfterPhotos")
+  voiceMessages             Message[]                  @relation("MessageAudio")
+
+  @@index([kind])
+}
+
+// ============= PROVIDER VERIFICATION =============
+
+model VerificationDocument {
+  id            String    @id @default(uuid())
+  providerId    String
+  documentType  String
+  fileId        String    @unique
+  status        String    @default("PENDING")
+  expiresAt     DateTime?
+  reviewNotes   String?
+  resubmittedAt DateTime?
+  reviewedById  String?
+  reviewedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  provider   Provider @relation(fields: [providerId], references: [id])
+  file       File     @relation(fields: [fileId], references: [id])
+  reviewedBy User?    @relation("DocumentReviewer", fields: [reviewedById], references: [id])
+
+  @@index([providerId])
+}
+
+// ============= MESSAGING =============
+
+model MessageThread {
+  id               String   @id @default(uuid())
+  organizationId   String
+  providerId       String
+  contractId       String?
+  serviceRequestId String?
+  subject          String
+  createdById      String
+  lastMessageAt    DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  provider       Provider        @relation(fields: [providerId], references: [id])
+  contract       Contract?       @relation(fields: [contractId], references: [id])
+  serviceRequest ServiceRequest? @relation(fields: [serviceRequestId], references: [id])
+  createdBy      User            @relation("ThreadCreator", fields: [createdById], references: [id])
+  messages       Message[]
+
+  @@index([organizationId, updatedAt])
+  @@index([providerId, updatedAt])
+}
+
+model Message {
+  id           String    @id @default(uuid())
+  threadId     String
+  senderId     String
+  body         String
+  audioFileId  String?
+  audioSeconds Int?
+  createdAt    DateTime  @default(now())
+  readAt       DateTime?
+
+  thread    MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender    User          @relation(fields: [senderId], references: [id])
+  audioFile File?         @relation("MessageAudio", fields: [audioFileId], references: [id])
+
+  @@index([threadId, createdAt])
+  @@index([senderId, readAt])
+}
+
+// ============= SLA TRACKING =============
+
+model SlaPolicy {
+  id              String   @id @default(uuid())
+  providerId      String?
+  name            String
+  responseHours   Int?
+  resolutionHours Int
+  warningHours    Int?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  provider Provider? @relation(fields: [providerId], references: [id])
+  jobs     JobSla[]
+
+  @@index([providerId, isActive])
+}
+
+model JobSla {
+  id          String    @id @default(uuid())
+  jobId       String    @unique
+  policyId    String?
+  deadline    DateTime
+  status      String    @default("ON_TRACK")
+  breachedAt  DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  job    Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  policy SlaPolicy? @relation(fields: [policyId], references: [id])
+
+  @@index([status, deadline])
+}
+
+// ============= RECURRING CONTRACT SCHEDULES =============
+
+model ContractSchedule {
+  id               String              @id @default(uuid())
+  contractId       String              @unique
+  frequency        RecurrenceFrequency
+  startsAt         DateTime
+  nextRunAt        DateTime
+  endsAt           DateTime?
+  occurrences      Int                 @default(0)
+  occurrencesLimit Int?
+  paused           Boolean             @default(false)
+  lastGeneratedAt  DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([paused, nextRunAt])
+}
+
+// ============= NOTIFICATION PREFERENCES =============
+
+model NotificationPreference {
+  id         String   @id @default(uuid())
+  userId     String   @unique
+  inApp      Boolean  @default(true)
+  email      Boolean  @default(true)
+  categories Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

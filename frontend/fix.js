@@ -1,0 +1,1 @@
+const fs=require("fs");const p=String.raw`C:\Users\Admin\Desktop\ANUM\Facility Service App\frontend\src\app\(dashboard)\dashboard\page.tsx`;let c=fs.readFileSync(p,"utf8");if(c.includes("\\n")){c=c.split("\\n").join("\n");fs.writeFileSync(p,c);console.log("fixed "+c.length+" chars");}else{console.log("already clean");}

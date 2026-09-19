@@ -1,0 +1,15 @@
+node_modules/
+.tools/
+backend/.pgdata/
+backend/uploads/
+*.tsbuildinfo
+.next/
+dist/
+*.log
+.env
+.env.local
+backend/.env
+frontend/.env.local
+tmp_*.json
+tmp-*.txt
+*.pid.txt
